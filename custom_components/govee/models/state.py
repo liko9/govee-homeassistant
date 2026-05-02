@@ -265,11 +265,6 @@ class GoveeDeviceState:
                             self.heater_auto_stop = int(auto_stop)
                         except (TypeError, ValueError):
                             pass
-
-            elif cap_type == "devices.capabilities.event":
-                if instance == "bodyAppearedEvent" and value is not None:
-                    self.leaked = int(value) == 1
-
     def update_from_mqtt(self, data: dict[str, Any]) -> None:
         """Update state from MQTT push message.
 
@@ -302,9 +297,6 @@ class GoveeDeviceState:
         if "colorTemInKelvin" in data:
             temp = data["colorTemInKelvin"]
             self.color_temp_kelvin = int(temp) if temp else None
-
-        if "leakage" in data:
-            self.leaked = bool(data["leakage"])
 
         # A confirmed push ends the optimistic grace window — from this point
         # on API polls are authoritative again for power/brightness.
