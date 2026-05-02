@@ -68,6 +68,7 @@ PLATFORMS: list[Platform] = [
     Platform.FAN,  # Fan devices
     Platform.HUMIDIFIER,  # Humidifiers / dehumidifiers
     Platform.SWITCH,
+    Platform.BINARY_SENSOR,  # Leak sensors
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.BUTTON,

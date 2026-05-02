@@ -2,9 +2,10 @@
 
 Exposes per-device connectivity status for each transport (Cloud REST
 API, AWS IoT MQTT, direct BLE) as CONNECTIVITY diagnostic entities.
+Also provides moisture sensors for water-leak detectors (H5054 and similar).
 
-Entities are opt-in via the ``expose_transport_entities`` option to avoid
-creating 3×N diagnostic entities by default.
+Transport connectivity entities are opt-in via ``expose_transport_entities``
+to avoid creating 3×N diagnostic entities by default.
 """
 
 from __future__ import annotations
@@ -51,13 +52,13 @@ async def async_setup_entry(
 
     entities: list[BinarySensorEntity] = []
 
-    # Water-tank-full sensor for dehumidifiers — always exposed since it
-    # maps to a real device event and there's one per device, not 3×N.
     for device in coordinator.devices.values():
         if device.is_group:
             continue
         if device.supports_water_full_event:
             entities.append(GoveeWaterFullBinarySensor(coordinator, device))
+        if device.is_leak_sensor:
+            entities.append(GoveeLeakSensor(coordinator, device))
 
     # Transport connectivity entities are opt-in to avoid creating 3×N
     # diagnostic entities by default.
@@ -106,6 +107,39 @@ class GoveeWaterFullBinarySensor(GoveeEntity, BinarySensorEntity):
         """Return True when the water tank is full."""
         state = self.device_state
         return state.water_full if state else None
+
+
+class GoveeLeakSensor(GoveeEntity, BinarySensorEntity):
+    """Binary sensor for Govee water leak detectors (H5054 and similar)."""
+
+    _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_translation_key = "leak"
+
+    def __init__(
+        self,
+        coordinator: GoveeCoordinator,
+        device: Any,
+    ) -> None:
+        """Initialize the leak sensor."""
+        super().__init__(coordinator, device)
+        self._attr_unique_id = f"{device.device_id}_leak"
+
+    @property
+    def available(self) -> bool:
+        """Return True if the coordinator is healthy.
+
+        RF/battery sensors frequently show online=False between heartbeats even
+        while functional, so coordinator health is used instead of device online.
+        """
+        return self.coordinator.last_update_success
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if a leak is detected, False if dry, None if unknown."""
+        state = self.device_state
+        if state is None:
+            return None
+        return state.leaked
 
 
 class GoveeTransportConnectivity(GoveeEntity, BinarySensorEntity):

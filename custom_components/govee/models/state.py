@@ -128,6 +128,9 @@ class GoveeDeviceState:
     sensor_temperature: float | None = None  # Celsius (always; entity converts)
     sensor_humidity: float | None = None  # Relative humidity 0-100 %
 
+    # Leak sensor state (H5054 and similar)
+    leaked: bool | None = None  # None = unknown, True = leak detected, False = dry
+
     # Last activated scene (for restoring after music mode off)
     last_scene_id: str | None = None
     last_scene_name: str | None = None
@@ -263,6 +266,10 @@ class GoveeDeviceState:
                         except (TypeError, ValueError):
                             pass
 
+            elif cap_type == "devices.capabilities.event":
+                if instance == "bodyAppearedEvent" and value is not None:
+                    self.leaked = int(value) == 1
+
     def update_from_mqtt(self, data: dict[str, Any]) -> None:
         """Update state from MQTT push message.
 
@@ -295,6 +302,9 @@ class GoveeDeviceState:
         if "colorTemInKelvin" in data:
             temp = data["colorTemInKelvin"]
             self.color_temp_kelvin = int(temp) if temp else None
+
+        if "leakage" in data:
+            self.leaked = bool(data["leakage"])
 
         # A confirmed push ends the optimistic grace window — from this point
         # on API polls are authoritative again for power/brightness.
