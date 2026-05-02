@@ -34,6 +34,7 @@ DEVICE_TYPE_DEHUMIDIFIER = "devices.types.dehumidifier"
 DEVICE_TYPE_FAN = "devices.types.fan"
 DEVICE_TYPE_PURIFIER = "devices.types.air_purifier"
 DEVICE_TYPE_KETTLE = "devices.types.kettle"
+DEVICE_TYPE_SENSOR = "devices.types.sensor"
 
 # Instance constants
 INSTANCE_POWER = "powerSwitch"
@@ -58,6 +59,7 @@ INSTANCE_PURIFIER_MODE = "purifierMode"
 INSTANCE_THERMOSTAT_TOGGLE = "thermostatToggle"
 INSTANCE_HUMIDITY = "humidity"
 INSTANCE_WATER_FULL_EVENT = "waterFullEvent"
+INSTANCE_LEAK_EVENT = "bodyAppearedEvent"
 
 # Read-only sensor property instances (devices.capabilities.property).
 # These appear on stand-alone sensors like H5179 (WiFi Thermometer) and
@@ -665,6 +667,15 @@ class GoveeDevice:
                                 if gear_options:
                                     return gear_options
         return []
+
+    @property
+    def is_leak_sensor(self) -> bool:
+        """Check if device is a water leak sensor."""
+        return self.device_type == DEVICE_TYPE_SENSOR and any(
+            cap.type == "devices.capabilities.event"
+            and cap.instance == INSTANCE_LEAK_EVENT
+            for cap in self.capabilities
+        )
 
     @property
     def is_light_device(self) -> bool:

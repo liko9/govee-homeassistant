@@ -379,10 +379,11 @@ class GoveeAwsIotClient:
                 return
 
             _LOGGER.debug(
-                "MQTT state update for %s: power=%s, brightness=%s",
+                "MQTT state update for %s: power=%s, brightness=%s, leakage=%s",
                 device_id,
                 state.get("onOff"),
                 state.get("brightness"),
+                state.get("leakage"),
             )
 
             # Invoke callback with device ID and state dict

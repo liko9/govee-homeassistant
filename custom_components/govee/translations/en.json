@@ -155,6 +155,11 @@
         "name": "{device_name}"
       }
     },
+    "binary_sensor": {
+      "leak": {
+        "name": "Leak"
+      }
+    },
     "sensor": {
       "rate_limit_remaining": {
         "name": "API Rate Limit Remaining"

@@ -703,6 +703,10 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                 if existing_state.heater_auto_stop is not None:
                     state.heater_auto_stop = existing_state.heater_auto_stop
 
+                # Leak sensor state: preserve across polls
+                if existing_state.leaked is not None:
+                    state.leaked = existing_state.leaked
+
                 self._preserve_optimistic_field(
                     existing_state, state, device_id, "dreamview_enabled", "DreamView"
                 )
