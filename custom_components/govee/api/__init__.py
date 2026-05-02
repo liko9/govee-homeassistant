@@ -15,7 +15,7 @@ from .exceptions import (
     GoveeLoginRejectedError,
     GoveeRateLimitError,
 )
-from .mqtt import GoveeAwsIotClient
+from .mqtt import GoveeAwsIotClient, GoveeOfficialMqttClient
 
 __all__ = [
     # Client
@@ -26,6 +26,7 @@ __all__ = [
     "validate_govee_credentials",
     # MQTT
     "GoveeAwsIotClient",
+    "GoveeOfficialMqttClient",
     # Exceptions
     "Govee2FACodeInvalidError",
     "Govee2FARequiredError",

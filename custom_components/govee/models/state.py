@@ -474,6 +474,17 @@ class GoveeDeviceState:
             self.active_scene_name = None
             self.active_diy_scene = None
 
+    def apply_event(self, instance: str, value: int) -> None:
+        """Update state from an official Govee MQTT event push.
+
+        Args:
+            instance: Capability instance (e.g. "bodyAppearedEvent").
+            value: Event value (1 = leaked, 2 = not leaked for H5054).
+        """
+        self.source = "mqtt"
+        if instance == "bodyAppearedEvent":
+            self.leaked = value == 1
+
     @classmethod
     def create_empty(cls, device_id: str) -> GoveeDeviceState:
         """Create empty state for a device."""
