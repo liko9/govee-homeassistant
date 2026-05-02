@@ -606,26 +606,29 @@ class GoveeOfficialMqttClient:
             data = json.loads(payload_str)
 
             device_id = data.get("device")
-            capability = data.get("capability", {})
-            cap_type = capability.get("type", "")
-            instance = capability.get("instance", "")
-            value = capability.get("value")
-
-            if not device_id or cap_type != "devices.capabilities.event" or value is None:
-                _LOGGER.debug("Official MQTT: ignoring non-event message for %s", device_id)
+            if not device_id:
                 return
 
-            _LOGGER.debug(
-                "Official MQTT event for %s: instance=%s value=%s",
-                device_id,
-                instance,
-                value,
-            )
+            for cap in data.get("capabilities", []):
+                cap_type = cap.get("type", "")
+                instance = cap.get("instance", "")
+                state_list = cap.get("state", [])
+                value = state_list[0].get("value") if state_list else None
 
-            try:
-                self._on_event(device_id, instance, int(value))
-            except Exception as err:
-                _LOGGER.error("Event callback failed for %s: %s", device_id, err)
+                if cap_type != "devices.capabilities.event" or value is None:
+                    continue
+
+                _LOGGER.debug(
+                    "Official MQTT event for %s: instance=%s value=%s",
+                    device_id,
+                    instance,
+                    value,
+                )
+
+                try:
+                    self._on_event(device_id, instance, int(value))
+                except Exception as err:
+                    _LOGGER.error("Event callback failed for %s: %s", device_id, err)
 
         except json.JSONDecodeError as err:
             _LOGGER.warning("Failed to parse official MQTT message: %s", err)
