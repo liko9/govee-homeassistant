@@ -720,6 +720,10 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                 ):
                     state.sensor_humidity = existing_state.sensor_humidity
 
+                # Leak sensor state: preserve across polls
+                if existing_state.leaked is not None:
+                    state.leaked = existing_state.leaked
+
                 self._preserve_optimistic_field(
                     existing_state, state, device_id, "dreamview_enabled", "DreamView"
                 )

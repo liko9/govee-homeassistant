@@ -130,6 +130,9 @@ class GoveeDeviceState:
     )
     sensor_humidity: float | None = None  # Relative humidity 0-100 %
 
+    # Leak sensor state (H5054 and similar)
+    leaked: bool | None = None  # None = unknown, True = leak detected, False = dry
+
     # Last activated scene (for restoring after music mode off)
     last_scene_id: str | None = None
     last_scene_name: str | None = None
@@ -264,7 +267,6 @@ class GoveeDeviceState:
                             self.heater_auto_stop = int(auto_stop)
                         except (TypeError, ValueError):
                             pass
-
     def update_from_mqtt(self, data: dict[str, Any]) -> None:
         """Update state from MQTT push message.
 
