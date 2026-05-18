@@ -25,6 +25,7 @@ from .api import (
     GoveeAwsIotClient,
     GoveeDeviceNotFoundError,
     GoveeIotCredentials,
+    GoveeOfficialMqttClient,
     GoveeRateLimitError,
 )
 from .api.auth import GoveeAuthClient
@@ -118,6 +119,7 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         iot_credentials: GoveeIotCredentials | None,
         poll_interval: int,
         enable_groups: bool = False,
+        api_key: str | None = None,
     ) -> None:
         """Initialize the coordinator.
 
@@ -128,6 +130,7 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             iot_credentials: Optional IoT credentials for MQTT.
             poll_interval: Polling interval in seconds.
             enable_groups: Whether to include group devices.
+            api_key: Developer API key for official MQTT event broker.
         """
         super().__init__(
             hass,
@@ -142,6 +145,7 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         self._api_client = api_client
         self._iot_credentials = iot_credentials
         self._enable_groups = enable_groups
+        self._api_key = api_key
 
         # Device registry
         self._devices: dict[str, GoveeDevice] = {}
@@ -165,8 +169,11 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
 
         # Observers for state changes
 
-        # MQTT client for real-time updates
+        # MQTT client for real-time updates (AWS IoT, requires email/password)
         self._mqtt_client: GoveeAwsIotClient | None = None
+
+        # Official Govee MQTT client for event-based devices (uses API key)
+        self._official_mqtt: GoveeOfficialMqttClient | None = None
 
         # Device-specific MQTT topics from undocumented API
         # Maps device_id -> MQTT topic for publishing commands
@@ -342,6 +349,10 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
             # Fetch device-specific MQTT topics for publishing commands
             await self._fetch_device_topics()
 
+        # Start official MQTT client for event-based devices (uses API key)
+        if self._api_key:
+            await self._start_official_mqtt()
+
     async def _discover_devices(self) -> None:
         """Discover all devices from Govee API."""
         try:
@@ -435,6 +446,49 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                 )
         else:
             _LOGGER.warning("MQTT library not available")
+
+    async def _start_official_mqtt(self) -> None:
+        """Start the official Govee MQTT client for event-based device updates."""
+        if not self._api_key:
+            return
+
+        self._official_mqtt = GoveeOfficialMqttClient(
+            api_key=self._api_key,
+            on_event=self._on_official_mqtt_event,
+        )
+
+        if self._official_mqtt.available:
+            try:
+                await self._official_mqtt.async_start()
+                _LOGGER.info("Official Govee MQTT client started for event-based devices")
+            except Exception as err:
+                _LOGGER.warning("Official Govee MQTT client failed to start: %s", err)
+        else:
+            _LOGGER.warning("aiomqtt not available - official Govee MQTT disabled")
+
+    @callback
+    def _on_official_mqtt_event(self, device_id: str, instance: str, value: int) -> None:
+        """Handle event push from the official Govee MQTT broker."""
+        if device_id not in self._devices:
+            _LOGGER.debug("Official MQTT event for unknown device: %s", device_id)
+            return
+
+        state = self._states.get(device_id)
+        if state is None:
+            state = GoveeDeviceState.create_empty(device_id)
+            self._states[device_id] = state
+
+        state.apply_event(instance, value)
+
+        self.async_set_updated_data(self._states)
+        self._notify_observers(device_id, state)
+
+        _LOGGER.debug(
+            "Official MQTT event applied for %s: instance=%s value=%s",
+            device_id,
+            instance,
+            value,
+        )
 
     async def _fetch_device_topics(self) -> None:
         """Fetch device-specific MQTT topics from undocumented Govee API.
@@ -719,6 +773,7 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
                     and state.sensor_humidity is None
                 ):
                     state.sensor_humidity = existing_state.sensor_humidity
+
 
                 # Leak sensor state: preserve across polls
                 if existing_state.leaked is not None:
@@ -1499,5 +1554,9 @@ class GoveeCoordinator(DataUpdateCoordinator[dict[str, GoveeDeviceState]]):
         if self._mqtt_client:
             await self._mqtt_client.async_stop()
             self._mqtt_client = None
+
+        if self._official_mqtt:
+            await self._official_mqtt.async_stop()
+            self._official_mqtt = None
 
         await self._api_client.close()

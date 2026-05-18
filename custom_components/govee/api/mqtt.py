@@ -74,6 +74,9 @@ GiveUpCallback = Callable[[int, str], None]
 """Invoked when the reconnect loop exhausts MAX_RECONNECT_ATTEMPTS.
 Args: (attempts_made, last_error_message)."""
 
+# Type for official MQTT event callback: (device_id, instance, value)
+EventCallback = Callable[[str, str, int], None]
+
 
 class GoveeAwsIotClient:
     """AWS IoT MQTT client for real-time Govee device state updates.
@@ -467,3 +470,167 @@ class GoveeAwsIotClient:
         except Exception as err:
             _LOGGER.error("Failed to publish ptReal: %s", err)
             return False
+
+
+class GoveeOfficialMqttClient:
+    """Official Govee MQTT client for event-based device push notifications.
+
+    Connects to Govee's official MQTT broker using the developer API key.
+    Delivers event capabilities (sensors, alerts) that the AWS IoT broker
+    does not provide.
+
+    Endpoint: mqtt.openapi.govee.com:8883
+    Auth: API key as both username and password
+    Topic: GA/<api_key>
+    """
+
+    _HOST = "mqtt.openapi.govee.com"
+    _PORT = 8883
+
+    def __init__(self, api_key: str, on_event: EventCallback) -> None:
+        """Initialize the official MQTT client.
+
+        Args:
+            api_key: Govee developer API key (used as username and password).
+            on_event: Callback(device_id, instance, value) for device events.
+        """
+        self._api_key = api_key
+        self._on_event = on_event
+        self._running = False
+        self._connected = False
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def connected(self) -> bool:
+        """Return True if connected to the official MQTT broker."""
+        return self._connected
+
+    @property
+    def available(self) -> bool:
+        """Return True if the MQTT library is available."""
+        return AIOMQTT_AVAILABLE
+
+    async def async_start(self) -> None:
+        """Start the MQTT connection loop."""
+        if not AIOMQTT_AVAILABLE:
+            _LOGGER.warning(
+                "aiomqtt library not available - official Govee MQTT disabled"
+            )
+            return
+
+        if self._running:
+            return
+
+        self._running = True
+        self._task = asyncio.create_task(self._connection_loop())
+        _LOGGER.debug("Official Govee MQTT client started")
+
+    async def async_stop(self) -> None:
+        """Stop the MQTT connection."""
+        self._running = False
+
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+        self._connected = False
+        _LOGGER.info("Official Govee MQTT client stopped")
+
+    async def _connection_loop(self) -> None:
+        """Maintain MQTT connection with exponential backoff."""
+        reconnect_interval = RECONNECT_BASE
+
+        while self._running:
+            try:
+                _LOGGER.debug("Connecting to official Govee MQTT: %s:%d", self._HOST, self._PORT)
+
+                async with aiomqtt.Client(
+                    hostname=self._HOST,
+                    port=self._PORT,
+                    username=self._api_key,
+                    password=self._api_key,
+                    tls_params=aiomqtt.TLSParameters(),
+                    keepalive=AWS_IOT_KEEPALIVE,
+                ) as client:
+                    self._connected = True
+                    reconnect_interval = RECONNECT_BASE
+
+                    topic = f"GA/{self._api_key}"
+                    await client.subscribe(topic)
+                    _LOGGER.info("Official Govee MQTT connected, subscribed to %s", topic[:20] + "...")
+
+                    async for message in client.messages:
+                        if not self._running:
+                            break
+                        await self._handle_message(message)
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception as err:
+                self._connected = False
+
+                if self._running:
+                    _LOGGER.warning(
+                        "Official Govee MQTT error (%s): %s. Reconnecting in %ds",
+                        type(err).__name__,
+                        err,
+                        reconnect_interval,
+                    )
+                    await asyncio.sleep(reconnect_interval)
+                    reconnect_interval = min(reconnect_interval * 2, RECONNECT_MAX)
+
+        self._connected = False
+
+    async def _handle_message(self, message: Any) -> None:
+        """Handle incoming event message.
+
+        Expected format:
+        {
+            "sku": "H5054",
+            "device": "CAC9A35EF89F0059C0",
+            "capability": {
+                "type": "devices.capabilities.event",
+                "instance": "bodyAppearedEvent",
+                "value": 1
+            }
+        }
+        """
+        try:
+            raw = message.payload
+            payload_str = raw.decode() if isinstance(raw, bytes) else str(raw)
+            data = json.loads(payload_str)
+
+            device_id = data.get("device")
+            if not device_id:
+                return
+
+            for cap in data.get("capabilities", []):
+                cap_type = cap.get("type", "")
+                instance = cap.get("instance", "")
+                state_list = cap.get("state", [])
+                value = state_list[0].get("value") if state_list else None
+
+                if cap_type != "devices.capabilities.event" or value is None:
+                    continue
+
+                _LOGGER.debug(
+                    "Official MQTT event for %s: instance=%s value=%s",
+                    device_id,
+                    instance,
+                    value,
+                )
+
+                try:
+                    self._on_event(device_id, instance, int(value))
+                except Exception as err:
+                    _LOGGER.error("Event callback failed for %s: %s", device_id, err)
+
+        except json.JSONDecodeError as err:
+            _LOGGER.warning("Failed to parse official MQTT message: %s", err)
+        except Exception as err:
+            _LOGGER.error("Error handling official MQTT message: %s", err)

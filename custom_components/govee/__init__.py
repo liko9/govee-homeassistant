@@ -214,6 +214,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeConfigEntry) -> boo
         iot_credentials=iot_credentials,
         poll_interval=poll_interval,
         enable_groups=enable_groups,
+        api_key=api_key,
     )
 
     # Discover devices, start MQTT, and perform initial refresh
